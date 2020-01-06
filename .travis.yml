@@ -1,6 +1,7 @@
 sudo: required
 dist: bionic
 language: cpp
+services: docker
 
 env:
   global:
@@ -35,6 +36,9 @@ addons:
         - libcairo2-dev
         - libiw-dev
         - libmpdclient-dev
+      - &packaging_deps
+        - aptly
+        - dpkg-dev
 
 script: source ${TRAVIS_BUILD_DIR}/common/travis/build.sh
 
@@ -55,7 +59,14 @@ matrix:
 
     - compiler: clang
       env: BUILD_TYPE=Release
-      addons: {apt: {packages: [*base_deps, *optional_deps]}}
+      addons: {apt: {packages: [*base_deps, *optional_deps, *packaging_deps]}}
+      after_success:
+        - cmake -DCPACK_GENERATOR=DEB ..
+        - make package
+        - aptly repo create polybar
+        - aptly repo add polybar *.deb
+        - aptly publish repo -distribution=bionic -skip-signing polybar
+        - docker run -v "${HOME}/.aptly/public":"/debian" -it --rm ubuntu:bionic bash -c "set -e; echo 'deb [trusted=yes] file:///debian/ bionic main' > /etc/apt/sources.list.d/polybar.list; apt-get update; apt-get install -yy polybar; if ldd /usr/bin/polybar | grep -q 'not found'; then exit 1; fi; if ldd /usr/bin/polybar-msg | grep -q 'not found'; then exit 1; fi"
 
     - compiler: gcc
       env: BUILD_TYPE=Coverage POLYBAR_BUILD_TYPE=tests BUILD_TESTS=ON
